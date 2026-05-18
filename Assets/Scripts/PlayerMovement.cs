@@ -3,6 +3,11 @@ using UnityEngine;
 
 public class PlayerMovement : MonoBehaviour
 {
+
+    [Header("Vida del Jugador")]
+    public int maxHealth = 100;
+    public int currentHealth;
+
     [Header("Movimiento")]
     public float speed = 4;
     public float rotationSpeed = 10;
@@ -26,6 +31,7 @@ public class PlayerMovement : MonoBehaviour
 
     void Start()
     {
+        currentHealth = maxHealth;
         forward = Camera.main.transform.forward;
         forward.y = 0;
         forward = Vector3.Normalize(forward);
@@ -33,6 +39,25 @@ public class PlayerMovement : MonoBehaviour
         right = Camera.main.transform.right;
         right.y = 0;
         right = Vector3.Normalize(right);
+    }
+
+    public void TakeDamage(int damage)
+    {
+        currentHealth -= damage;
+        Debug.Log("¡El jugador ha recibido daño! Vida actual: " + currentHealth);
+
+        if (currentHealth <= 0)
+        {
+            currentHealth = 0;
+            Die();
+        }
+    }
+
+    void Die()
+    {
+        Debug.Log("¡HAS MUERTO! Game Over.");
+        // De momento congelamos el juego al morir para notar el impacto
+        Time.timeScale = 0f; 
     }
 
     void Update()

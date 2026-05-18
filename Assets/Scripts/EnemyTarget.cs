@@ -13,6 +13,11 @@ public class EnemyTarget : MonoBehaviour
     private int currentHealth;
     private bool isStunned = false; // Bloquea el movimiento al ser golpeado
 
+    [Header("Ataque Enemigo")]
+    public int damageAmount = 20; // Daño que hace por golpe
+    public float attackRate = 1f; // Segundos de espera entre golpes
+    private float nextAttackTime = 0f;
+
     void Start()
     {
         currentHealth = maxHealth;
@@ -31,6 +36,26 @@ public class EnemyTarget : MonoBehaviour
         }
     }
 
+    void OnCollisionStay(Collision collision)
+    {
+        // Comprobamos si con lo que ha chocado es el Jugador
+        if (collision.gameObject.CompareTag("Player"))
+        {
+            // Si ha pasado suficiente tiempo desde el último golpe...
+            if (Time.time > nextAttackTime)
+            {
+                // Buscamos el script del jugador en el objeto con el que chocamos
+                PlayerMovement player = collision.gameObject.GetComponent<PlayerMovement>();
+                
+                if (player != null)
+                {
+                    player.TakeDamage(damageAmount);
+                    // Calculamos cuándo será el próximo momento en el que pueda volver a pegar
+                    nextAttackTime = Time.time + attackRate;
+                }
+            }
+        }
+    }
     void FixedUpdate()
     {
         // Si está aturdido o no hay jugador, frenamos por completo el movimiento
