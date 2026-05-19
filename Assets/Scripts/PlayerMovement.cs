@@ -1,8 +1,13 @@
 using System.Collections;
 using UnityEngine;
+using System.Runtime.InteropServices;
 
 public class PlayerMovement : MonoBehaviour
 {
+
+    // Este "import" le permite a Unity buscar una función llamada 'EnviarOrbesAWeb' en tu código Javascript de la página web
+    [DllImport("__Internal")]
+    private static extern void EnviarOrbesAWeb(int cantidad);
 
     [Header("Vida del Jugador")]
     public int maxHealth = 100;
@@ -29,6 +34,9 @@ public class PlayerMovement : MonoBehaviour
     public float attackRate = 0.4f; // Cooldown entre golpes
     private float nextAttackTime = 0f;
 
+    [Header("Economia del Juego")]
+    public int orbesRojosPartida = 0; // Orbes acumulados en ESTA partida
+
     void Start()
     {
         currentHealth = maxHealth;
@@ -53,11 +61,30 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
+    // Esta función la llamará el enemigo al morir en lugar de soltar un orbe
+    public void GanarOrbes(int cantidad)
+    {
+        orbesRojosPartida += cantidad;
+        Debug.Log("¡Orbes Rojos obtenidos! Total: " + orbesRojosPartida);
+    }
+
     void Die()
     {
-        Debug.Log("¡HAS MUERTO! Game Over.");
-        // De momento congelamos el juego al morir para notar el impacto
-        Time.timeScale = 0f; 
+        Debug.Log("¡HAS MUERTO! Enviando orbes a la web: " + orbesRojosPartida);
+
+        // 1. Activamos el menú de Game Over en Unity de forma normal
+        GameUI ui = FindFirstObjectByType<GameUI>();
+        if (ui != null)
+        {
+            ui.ActivarGameOver();
+        }
+
+        // 2. ENVIAMOS LOS ORBES A LA WEB
+        #if !UNITY_EDITOR && UNITY_WEBGL
+            EnviarOrbesAWeb(orbesRojosPartida);
+        #else
+            Debug.LogWarning("Comunicación WebGL saltada: Estás en el Editor de Unity.");
+        #endif
     }
 
     void Update()

@@ -18,6 +18,10 @@ public class EnemyTarget : MonoBehaviour
     public float attackRate = 1f; // Segundos de espera entre golpes
     private float nextAttackTime = 0f;
 
+    [Header("Recompensa")]
+    public int orbesAlMorir = 15;
+
+
     void Start()
     {
         currentHealth = maxHealth;
@@ -109,9 +113,18 @@ public void TakeDamage(int damage)
         isStunned = false; 
     }
 
-void Die()
-{
-    Debug.Log("EnemyTarget: Enemigo destruido.");
-    Destroy(gameObject); // Solo se destruye a sí mismo
-}
+    void Die()
+    {
+        Debug.Log("EnemyTarget: Enemigo destruido.");
+
+        // 1. Le ingresamos los orbes directamente al jugador
+        PlayerMovement jugador = FindFirstObjectByType<PlayerMovement>();
+        if (jugador != null)
+        {
+            jugador.GanarOrbes(orbesAlMorir);
+        }
+
+        // 2. Destruimos el objeto de la escena
+        Destroy(gameObject); 
+    }
 }
