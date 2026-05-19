@@ -4,7 +4,6 @@ using System.Runtime.InteropServices;
 
 public class PlayerMovement : MonoBehaviour
 {
-
     // Este "import" le permite a Unity buscar una función llamada 'EnviarOrbesAWeb' en tu código Javascript de la página web
     [DllImport("__Internal")]
     private static extern void EnviarOrbesAWeb(int cantidad);
@@ -17,27 +16,43 @@ public class PlayerMovement : MonoBehaviour
     public float speed = 4;
     public float rotationSpeed = 10;
     private Vector3 forward, right;
-    private Vector3 direction; // La hacemos variable de clase para usarla en el Dash
+    private Vector3 direction; 
 
     [Header("Dash (Esquive)")]
     public float dashSpeed = 15f;
     public float dashDuration = 0.2f;
-    public float dashCooldown = 1f;
+    public float dashCooldown = 0.5f;        // Tiempo que tarda en recargarse UNA carga entera
+    public float margenEntreDashes = 0.15f; // Margen mínimo para que no se ejecuten dos dashes en el mismo frame
+    
+    [Header("Progreso del Dash (Cargas)")]
+    public int maxDashes = 1;               // Cuántas cargas máximas de dash tienes disponibles
+    private int currentDashes;              // Cuántas cargas te quedan actualmente
     private bool isDashing = false;
-    private bool canDash = true;
+    private float nextDashTimeAllowed = 0f;
 
-    [Header("Combate")]
+    [Header("Combate Cuerpo a Cuerpo")]
     public Transform attackPoint; // Objeto vacío hijo frente al cubo
-    public float attackRange = 1.5f;
+    public float attackRange = 1.5f; //
     public LayerMask enemyLayers; // Capa de los enemigos
-    public int attackDamage = 1;
+    public int attackDamage = 1; //
     public float attackRate = 0.4f; // Cooldown entre golpes
     private float nextAttackTime = 0f;
+    private int danioBaseInicial;   // Guarda el daño asignado en el Inspector antes del bonus web
+
+    [Header("Ataque a Distancia (Ebony & Ivory)")]
+    public GameObject bulletPrefab;       // El Prefab de la bala
+    public Transform leftPistolMuzzle;    // Punto de salida de la pistola izquierda
+    public Transform rightPistolMuzzle;   // Punto de salida de la pistola derecha
+    public float fireRate = 0.2f;          // Cadencia de disparo
+    
+    private float nextFireTime = 0f;
+    private bool fireLeftHand = true;      // Controla el orden alterno de las pistolas
+    private Camera mainCamera;
 
     [Header("Economia del Juego")]
     public int orbesRojosPartida = 0; // Orbes acumulados en ESTA partida
-    public float multiplicadorPuntos = 1f;
-    private bool yaHaMuerto = false;
+    public float multiplicadorPuntos = 1f; //
+    private bool yaHaMuerto = false; //
 
 
     [System.Serializable]
@@ -53,46 +68,207 @@ public class PlayerMovement : MonoBehaviour
     {
         try
         {
-            // Convertimos el texto JSON en variables de C#
             WebStats datos = JsonUtility.FromJson<WebStats>(jsonDeLaWeb);
 
-            // 1. Aplicamos el bonus de daño (ej: daño base * multiplicador)
-            attackDamage = Mathf.RoundToInt(attackDamage * datos.danio_bonus);
+            // Ajustamos el daño basándonos en el valor inicial
+            float factorDanio = datos.danio_bonus > 0 ? datos.danio_bonus : 1f;
+            attackDamage = Mathf.RoundToInt(danioBaseInicial * factorDanio);
 
-            // 2. Aplicamos el bonus de vida
-            maxHealth = Mathf.RoundToInt(maxHealth * datos.vida_bonus);
-            currentHealth = maxHealth; // Rellenamos la vida con el nuevo tope
+            float factorVida = datos.vida_bonus > 0 ? datos.vida_bonus : 1f;
+            maxHealth = Mathf.RoundToInt(100 * factorVida); // Escalamos sobre la base de 100 de vida
+            currentHealth = maxHealth;
 
-            // 3. Guardamos el multiplicador de puntos para usarlo cuando muera un enemigo
-            multiplicadorPuntos = datos.mult_puntos;
+            if (datos.mult_puntos > 0) {
+                multiplicadorPuntos = datos.mult_puntos;
+            } else {
+                multiplicadorPuntos = 1f;
+            }
 
-            Debug.Log($"[WEB] Stats aplicadas con éxito: Daño x{datos.danio_bonus}, Vida Max: {maxHealth}, Mult. Puntos x{datos.mult_puntos}");
+            // Si hay dash adicional comprado en la web, aumentamos las cargas máximas disponibles
+            if (datos.dash_adicional > 0) {
+                maxDashes = 1 + datos.dash_adicional;
+            } else {
+                maxDashes = 1;
+            }
+            currentDashes = maxDashes;
+
+            Debug.Log($"[WEB] Stats aplicadas -> Daño: {attackDamage} (x{factorDanio}), Vida Max: {maxHealth}, Mult. Puntos x{multiplicadorPuntos}, Dashes Totales: {maxDashes}");
         }
         catch (System.Exception e)
         {
-            Debug.LogError("Error al procesar las estadísticas de la tienda web: " + e.Message);
+            Debug.LogError("Error leyendo el JSON: " + e.Message);
         }
     }
 
     void Start()
     {
-        currentHealth = maxHealth;
-        forward = Camera.main.transform.forward;
-        forward.y = 0;
-        forward = Vector3.Normalize(forward);
+        danioBaseInicial = attackDamage; // Guardamos el valor original puesto en el inspector
+        currentHealth = maxHealth; //
+        
+        forward = Camera.main.transform.forward; //
+        forward.y = 0; //
+        forward = Vector3.Normalize(forward); //
 
-        right = Camera.main.transform.right;
-        right.y = 0;
-        right = Vector3.Normalize(right);
+        right = Camera.main.transform.right; //
+        right.y = 0; //
+        right = Vector3.Normalize(right); //
+
+        mainCamera = Camera.main; //
+
+        // Inicializamos las cargas de esquive del jugador
+        currentDashes = maxDashes;
 
         #if UNITY_EDITOR
         // Creamos un texto que imita exactamente al JSON de Flask
-        // Daño x3, Vida x2, Multiplicador de puntos x5, y Dash activado (1)
+        // Daño x3, Vida x2, Multiplicador de puntos x5, y 1 Dash Adicional (Doble dash en total)
         string jsonSimulado = "{\"danio_bonus\":3.0, \"vida_bonus\":2.0, \"mult_puntos\":5.0, \"dash_adicional\":1}";
         
         Debug.Log("[EDITOR] Simulando la carga de la tienda web...");
         AplicarMejorasWeb(jsonSimulado);
         #endif
+    }
+
+void Update()
+    {
+        if (isDashing) return; 
+
+        float horizontalInput = Input.GetAxisRaw("Horizontal"); 
+        float verticalInput = Input.GetAxis("Vertical"); 
+   
+        direction = (horizontalInput * right) + (verticalInput * forward); 
+
+        // --- MOVIMIENTO DEL JUGADOR ---
+        if (direction.magnitude > 0.1f) 
+        {
+            // Las teclas solo trasladan la posición del cubo, ya no modifican su rotación
+            transform.position += direction * speed * Time.deltaTime; 
+        }
+
+        // --- ROTACIÓN CONTINUA (Estilo Hades / DMC) ---
+        // Quitamos las condiciones del clic. Ahora el cubo calcula y mira al ratón TODO EL TIEMPO
+        GirarHaciaElRaton();
+
+        // --- RECARGA PASIVA DE DASHES ---
+        if (currentDashes < maxDashes && !isDashing && Time.time >= nextDashTimeAllowed)
+        {
+            StartCoroutine(RecargarCargaDash());
+        }
+
+        // --- INPUT DEL DASH ---
+        if (Input.GetKeyDown(KeyCode.LeftShift) && currentDashes > 0 && direction.magnitude > 0.1f && Time.time >= nextDashTimeAllowed)
+        {
+            StartCoroutine(PerformDash());
+        }
+
+        // --- ENTRADA DE COMBATE ---
+        // Clic Izquierdo: Espadazo (Rebellion)
+        if (Time.time >= nextAttackTime && Input.GetMouseButtonDown(0)) 
+        {
+            Attack(); 
+            nextAttackTime = Time.time + attackRate; 
+        }
+
+        // Clic Derecho: Disparar pistolas (Ebony & Ivory)
+        if (Input.GetMouseButton(1) && Time.time >= nextFireTime)
+        {
+            DispararPistolas();
+            nextFireTime = Time.time + fireRate;
+        }
+    }
+
+    // Corrutina para el Dash continuo con consumo de cargas individuales
+    IEnumerator PerformDash()
+    {
+        isDashing = true;
+        currentDashes--; // Consumimos una carga de forma inmediata
+        Debug.Log($"[DASH] Esquive realizado. Cargas restantes: {currentDashes}/{maxDashes}");
+
+        Vector3 dashDirection = direction.normalized;
+        float timer = 0f;
+
+        while (timer < dashDuration)
+        {
+            transform.position += dashDirection * dashSpeed * Time.deltaTime;
+            timer += Time.deltaTime;
+            yield return null; 
+        }
+
+        isDashing = false;
+
+        // Establecemos el pequeño margen para evitar dobles inputs accidentales en ráfaga
+        nextDashTimeAllowed = Time.time + margenEntreDashes;
+    }
+
+    // Corrutina de refresco pasivo para recuperar cargas del Dash
+    IEnumerator RecargarCargaDash()
+    {
+        nextDashTimeAllowed = Time.time + dashCooldown;
+        
+        yield return new WaitForSeconds(dashCooldown);
+        
+        if (currentDashes < maxDashes)
+        {
+            currentDashes++;
+            Debug.Log($"[DASH] Carga recuperada. Disponibles: {currentDashes}/{maxDashes}");
+        }
+    }
+
+    void Attack()
+    {
+        Collider[] hitEnemies = Physics.OverlapSphere(attackPoint.position, attackRange, enemyLayers);
+
+        foreach (Collider enemy in hitEnemies)
+        {
+            if (enemy.GetComponent<Enemy>() != null)
+            {
+                enemy.GetComponent<Enemy>().TakeDamage(attackDamage);
+            }
+            else if (enemy.GetComponent<EnemyTarget>() != null)
+            {
+                enemy.GetComponent<EnemyTarget>().TakeDamage(attackDamage);
+            }
+        }
+    }
+
+    void GirarHaciaElRaton()
+    {
+        Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
+        Plane playerPlane = new Plane(Vector3.up, transform.position);
+        float rayDistance;
+
+        if (playerPlane.Raycast(ray, out rayDistance))
+        {
+            Vector3 pointToLook = ray.GetPoint(rayDistance);
+            
+            // 🔥 TRUCO: Multiplicamos por -1 (invirtiendo el vector) 
+            // para que la espalda pase a ser el frente del cubo.
+            Vector3 lookDirection = -(pointToLook - transform.position);
+            lookDirection.y = 0f;
+
+            if (lookDirection.magnitude > 0.1f)
+            {
+                Quaternion targetRotation = Quaternion.LookRotation(lookDirection);
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, 25f * Time.deltaTime);
+            }
+        }
+    }
+
+    void DispararPistolas()
+    {
+        Transform puntoDisparoActual = fireLeftHand ? leftPistolMuzzle : rightPistolMuzzle;
+        if (puntoDisparoActual == null) puntoDisparoActual = transform;
+
+        GameObject nuevaBala = Instantiate(bulletPrefab, puntoDisparoActual.position, transform.rotation);
+        
+        Bullet scriptBala = nuevaBala.GetComponent<Bullet>();
+        if (scriptBala != null)
+        {
+            scriptBala.SetDamage(attackDamage);
+        }
+
+        Debug.Log($"[GUNS] {(fireLeftHand ? "Ebony (Izquierda)" : "Ivory (Derecha)")} disparó. Daño aplicado: {Mathf.Max(1, Mathf.RoundToInt(attackDamage * 0.5f))}");
+
+        fireLeftHand = !fireLeftHand;
     }
 
     public void TakeDamage(int damage)
@@ -107,7 +283,6 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
-    // Esta función la llamará el enemigo al morir en lugar de soltar un orbe
     public void GanarOrbes(int cantidad)
     {
         orbesRojosPartida += cantidad;
@@ -116,95 +291,16 @@ public class PlayerMovement : MonoBehaviour
 
     public void Die()
     {
-        // Si ya procesamos la muerte, ignoramos las siguientes llamadas del Update
         if (yaHaMuerto) return; 
         
         yaHaMuerto = true;
         Debug.Log("¡El jugador ha muerto! Enviando orbes cosechados: " + orbesRojosPartida);
 
-        // Invoca el Javascript de juego.html pasándole los puntos reales
         #if !UNITY_EDITOR && UNITY_WEBGL
             EnviarOrbesAWeb(orbesRojosPartida);
         #endif
     }
 
-    void Update()
-    {
-        // Si está haciendo un Dash, bloqueamos el control normal y el ataque
-        if (isDashing) return;
-
-        float horizontalInput = Input.GetAxisRaw("Horizontal"); // Usamos GetAxisRaw para que sea más responsivo
-        float verticalInput = Input.GetAxis("Vertical");
-   
-        direction = (horizontalInput * right) + (verticalInput * forward);
-
-        // 1. Lógica de Movimiento y Rotación (Tu código original)
-        if (direction.magnitude > 0.1f) 
-        {
-            transform.position += direction * speed * Time.deltaTime;
-
-            Quaternion targetRotation = Quaternion.LookRotation(direction);
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
-        }
-
-        // 2. Input del Dash (Shift Izquierdo)
-        if (Input.GetKeyDown(KeyCode.LeftShift) && canDash && direction.magnitude > 0.1f)
-        {
-            StartCoroutine(PerformDash());
-        }
-
-        // 3. Input de Ataque (Clic Izquierdo)
-        if (Time.time >= nextAttackTime)
-        {
-            if (Input.GetMouseButtonDown(0))
-            {
-                Attack();
-                nextAttackTime = Time.time + attackRate;
-            }
-        }
-    }
-
-    // Corrutina para el Dash estilo Hades (Inmune/Rápido)
-    IEnumerator PerformDash()
-    {
-        canDash = false;
-        isDashing = true;
-
-        // Calculamos la dirección fija del dash en el momento de pulsar el botón
-        Vector3 dashDirection = direction.normalized;
-        float timer = 0f;
-
-        while (timer < dashDuration)
-        {
-            // Mueve al jugador hacia adelante en la dirección del dash independientemente de los inputs
-            transform.position += dashDirection * dashSpeed * Time.deltaTime;
-            timer += Time.deltaTime;
-            yield return null; // Espera al siguiente frame
-        }
-
-        isDashing = false;
-
-        // Cooldown antes de poder usarlo otra vez
-        yield return new WaitForSeconds(dashCooldown);
-        canDash = true;
-    }
-
-    void Attack()
-    {
-        // Detectar enemigos en un círculo al frente
-        Collider[] hitEnemies = Physics.OverlapSphere(attackPoint.position, attackRange, enemyLayers);
-
-        // Dañar enemigos
-        foreach (Collider enemy in hitEnemies)
-        {
-            if (enemy.GetComponent<Enemy>() != null)
-            {
-                enemy.GetComponent<Enemy>().TakeDamage(attackDamage);
-            }
-        }
-    }
-
-    // Dibuja el rango de ataque en el editor para que puedas calibrarlo
     void OnDrawGizmosSelected()
     {
         if (attackPoint == null) return;
