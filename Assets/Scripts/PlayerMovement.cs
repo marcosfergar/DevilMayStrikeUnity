@@ -36,6 +36,7 @@ public class PlayerMovement : MonoBehaviour
 
     [Header("Economia del Juego")]
     public int orbesRojosPartida = 0; // Orbes acumulados en ESTA partida
+    private bool yaHaMuerto = false;
 
     void Start()
     {
@@ -47,6 +48,34 @@ public class PlayerMovement : MonoBehaviour
         right = Camera.main.transform.right;
         right.y = 0;
         right = Vector3.Normalize(right);
+    }
+
+    [System.Serializable]
+    public class WebStats
+    {
+        public float danio_bonus;
+        public float vida_bonus;
+    }
+
+    [Header("Estadísticas Modificadas por Web")]
+    public float multiplicadorDanio = 1.0f;
+
+    // Esta función será llamada automáticamente desde JavaScript mediante SendMessage
+    public void AplicarMejorasWeb(string jsonDatos)
+    {
+        // Convertimos el texto JSON en variables de C#
+        WebStats stats = JsonUtility.FromJson<WebStats>(jsonDatos);
+
+        if (stats != null)
+        {
+            this.multiplicadorDanio = stats.danio_bonus;
+            
+            // Modificamos la vida máxima del jugador según la tienda web
+            this.maxHealth = Mathf.RoundToInt(100 * stats.vida_bonus);
+            this.currentHealth = this.maxHealth; // Curamos al jugador al nuevo máximo
+            
+            Debug.Log($"[WEB] Sincronización SSS: Daño x{multiplicadorDanio} | Vida Máx: {maxHealth}");
+        }
     }
 
     public void TakeDamage(int damage)
@@ -68,22 +97,17 @@ public class PlayerMovement : MonoBehaviour
         Debug.Log("¡Orbes Rojos obtenidos! Total: " + orbesRojosPartida);
     }
 
-    void Die()
+    public void Die()
     {
-        Debug.Log("¡HAS MUERTO! Enviando orbes a la web: " + orbesRojosPartida);
+        // Si ya procesamos la muerte, ignoramos las siguientes llamadas del Update
+        if (yaHaMuerto) return; 
+        
+        yaHaMuerto = true;
+        Debug.Log("¡El jugador ha muerto! Enviando orbes cosechados: " + orbesRojosPartida);
 
-        // 1. Activamos el menú de Game Over en Unity de forma normal
-        GameUI ui = FindFirstObjectByType<GameUI>();
-        if (ui != null)
-        {
-            ui.ActivarGameOver();
-        }
-
-        // 2. ENVIAMOS LOS ORBES A LA WEB
+        // Invoca el Javascript de juego.html pasándole los puntos reales
         #if !UNITY_EDITOR && UNITY_WEBGL
             EnviarOrbesAWeb(orbesRojosPartida);
-        #else
-            Debug.LogWarning("Comunicación WebGL saltada: Estás en el Editor de Unity.");
         #endif
     }
 
