@@ -35,23 +35,24 @@ public class Enemy : MonoBehaviour
 
     void Die()
     {
-        Debug.Log("Enemy: ¡El método Die() real se está ejecutando!");
+        Debug.Log("Enemy: ¡Enemigo derrotado con éxito!");
 
-        // Buscamos al script del jugador en la escena
         PlayerMovement jugador = FindFirstObjectByType<PlayerMovement>();
         
         if (jugador != null)
         {
-            // Le sumamos los orbes directamente a su variable de economía
-            jugador.orbesRojosPartida += orbesAlMorir;
-            Debug.Log("¡Orbes transferidos al jugador! Total acumulado: " + jugador.orbesRojosPartida);
+            // Calculamos los orbes aplicando el multiplicador que vino de la web
+            // Usamos 'multiplicadorPuntos' que añadimos en el script del jugador
+            int orbesFinales = Mathf.RoundToInt(orbesAlMorir * jugador.multiplicadorPuntos);
+
+            jugador.orbesRojosPartida += orbesFinales; 
+            Debug.Log($"¡Orbes transferidos! Base: {orbesAlMorir} x Mult: {jugador.multiplicadorPuntos} = Total: {orbesFinales}. Acumulado: {jugador.orbesRojosPartida}");
         }
         else
         {
-            Debug.LogError("Enemy: No se pudo encontrar al jugador en la escena para darle los orbes.");
+            Debug.LogError("Enemy: No se pudo encontrar al jugador en la escena.");
         }
 
-        // Destruimos el cubo de la escena
         Destroy(gameObject);
     }
 }

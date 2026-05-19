@@ -36,7 +36,43 @@ public class PlayerMovement : MonoBehaviour
 
     [Header("Economia del Juego")]
     public int orbesRojosPartida = 0; // Orbes acumulados en ESTA partida
+    public float multiplicadorPuntos = 1f;
     private bool yaHaMuerto = false;
+
+
+    [System.Serializable]
+    public class WebStats
+    {
+        public float danio_bonus;
+        public float vida_bonus;
+        public float mult_puntos;
+        public int dash_adicional;
+    }
+
+    public void AplicarMejorasWeb(string jsonDeLaWeb)
+    {
+        try
+        {
+            // Convertimos el texto JSON en variables de C#
+            WebStats datos = JsonUtility.FromJson<WebStats>(jsonDeLaWeb);
+
+            // 1. Aplicamos el bonus de daño (ej: daño base * multiplicador)
+            attackDamage = Mathf.RoundToInt(attackDamage * datos.danio_bonus);
+
+            // 2. Aplicamos el bonus de vida
+            maxHealth = Mathf.RoundToInt(maxHealth * datos.vida_bonus);
+            currentHealth = maxHealth; // Rellenamos la vida con el nuevo tope
+
+            // 3. Guardamos el multiplicador de puntos para usarlo cuando muera un enemigo
+            multiplicadorPuntos = datos.mult_puntos;
+
+            Debug.Log($"[WEB] Stats aplicadas con éxito: Daño x{datos.danio_bonus}, Vida Max: {maxHealth}, Mult. Puntos x{datos.mult_puntos}");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError("Error al procesar las estadísticas de la tienda web: " + e.Message);
+        }
+    }
 
     void Start()
     {
@@ -48,34 +84,15 @@ public class PlayerMovement : MonoBehaviour
         right = Camera.main.transform.right;
         right.y = 0;
         right = Vector3.Normalize(right);
-    }
 
-    [System.Serializable]
-    public class WebStats
-    {
-        public float danio_bonus;
-        public float vida_bonus;
-    }
-
-    [Header("Estadísticas Modificadas por Web")]
-    public float multiplicadorDanio = 1.0f;
-
-    // Esta función será llamada automáticamente desde JavaScript mediante SendMessage
-    public void AplicarMejorasWeb(string jsonDatos)
-    {
-        // Convertimos el texto JSON en variables de C#
-        WebStats stats = JsonUtility.FromJson<WebStats>(jsonDatos);
-
-        if (stats != null)
-        {
-            this.multiplicadorDanio = stats.danio_bonus;
-            
-            // Modificamos la vida máxima del jugador según la tienda web
-            this.maxHealth = Mathf.RoundToInt(100 * stats.vida_bonus);
-            this.currentHealth = this.maxHealth; // Curamos al jugador al nuevo máximo
-            
-            Debug.Log($"[WEB] Sincronización SSS: Daño x{multiplicadorDanio} | Vida Máx: {maxHealth}");
-        }
+        #if UNITY_EDITOR
+        // Creamos un texto que imita exactamente al JSON de Flask
+        // Daño x3, Vida x2, Multiplicador de puntos x5, y Dash activado (1)
+        string jsonSimulado = "{\"danio_bonus\":3.0, \"vida_bonus\":2.0, \"mult_puntos\":5.0, \"dash_adicional\":1}";
+        
+        Debug.Log("[EDITOR] Simulando la carga de la tienda web...");
+        AplicarMejorasWeb(jsonSimulado);
+        #endif
     }
 
     public void TakeDamage(int damage)
