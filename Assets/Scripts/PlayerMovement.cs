@@ -31,10 +31,10 @@ public class PlayerMovement : MonoBehaviour
     private float nextDashTimeAllowed = 0f;
 
     [Header("Combate Cuerpo a Cuerpo")]
-    public Transform attackPoint; // Objeto vacío hijo frente al cubo
-    public float attackRange = 1.5f; //
+    public Transform attackPoint; // Objeto vacío hijo frente al modelo
+    public float attackRange = 1.5f; 
     public LayerMask enemyLayers; // Capa de los enemigos
-    public int attackDamage = 1; //
+    public int attackDamage = 1; 
     public float attackRate = 0.4f; // Cooldown entre golpes
     private float nextAttackTime = 0f;
     private int danioBaseInicial;   // Guarda el daño asignado en el Inspector antes del bonus web
@@ -51,9 +51,11 @@ public class PlayerMovement : MonoBehaviour
 
     [Header("Economia del Juego")]
     public int orbesRojosPartida = 0; // Orbes acumulados en ESTA partida
-    public float multiplicadorPuntos = 1f; //
-    private bool yaHaMuerto = false; //
+    public float multiplicadorPuntos = 1f; 
+    private bool yaHaMuerto = false; 
 
+    // --- VARIABLES INTERNAS DEL MOTOR ---
+    private Animator anim; // El "cerebro" de animación de Dante (¡CORREGIDO: Faltaba declarar!)
 
     [System.Serializable]
     public class WebStats
@@ -103,32 +105,31 @@ public class PlayerMovement : MonoBehaviour
     void Start()
     {
         danioBaseInicial = attackDamage; // Guardamos el valor original puesto en el inspector
-        currentHealth = maxHealth; //
+        currentHealth = maxHealth; 
         
-        forward = Camera.main.transform.forward; //
-        forward.y = 0; //
-        forward = Vector3.Normalize(forward); //
+        forward = Camera.main.transform.forward; 
+        forward.y = 0; 
+        forward = Vector3.Normalize(forward); 
 
-        right = Camera.main.transform.right; //
-        right.y = 0; //
-        right = Vector3.Normalize(right); //
+        right = Camera.main.transform.right; 
+        right.y = 0; 
+        right = Vector3.Normalize(right); 
 
-        mainCamera = Camera.main; //
+        mainCamera = Camera.main; 
 
-        // Inicializamos las cargas de esquive del jugador
+        // Inicializamos componentes del jugador y animaciones
         currentDashes = maxDashes;
-
+        anim = GetComponentInChildren<Animator>();
+        if (anim == null) { Debug.LogError("¡ALERTA! El script no encuentra el Animator en Dante."); }
         #if UNITY_EDITOR
-        // Creamos un texto que imita exactamente al JSON de Flask
-        // Daño x3, Vida x2, Multiplicador de puntos x5, y 1 Dash Adicional (Doble dash en total)
+        // Simulador de la pasarela Web de Flask para pruebas locales
         string jsonSimulado = "{\"danio_bonus\":3.0, \"vida_bonus\":2.0, \"mult_puntos\":5.0, \"dash_adicional\":1}";
-        
         Debug.Log("[EDITOR] Simulando la carga de la tienda web...");
         AplicarMejorasWeb(jsonSimulado);
         #endif
     }
 
-void Update()
+    void Update()
     {
         if (isDashing) return; 
 
@@ -140,12 +141,10 @@ void Update()
         // --- MOVIMIENTO DEL JUGADOR ---
         if (direction.magnitude > 0.1f) 
         {
-            // Las teclas solo trasladan la posición del cubo, ya no modifican su rotación
             transform.position += direction * speed * Time.deltaTime; 
         }
 
-        // --- ROTACIÓN CONTINUA (Estilo Hades / DMC) ---
-        // Quitamos las condiciones del clic. Ahora el cubo calcula y mira al ratón TODO EL TIEMPO
+        // --- ROTACIÓN CONTINUA ---
         GirarHaciaElRaton();
 
         // --- RECARGA PASIVA DE DASHES ---
@@ -174,6 +173,13 @@ void Update()
             DispararPistolas();
             nextFireTime = Time.time + fireRate;
         }
+
+        // --- CONTROL DE ANIMACIÓN DE MOVERSE (¡CORREGIDO: Ahora usa 'direction'!) ---
+        if (anim != null)
+        {
+            bool estaMoviendose = (direction.magnitude > 0.1f);
+            anim.SetBool("isWalking", estaMoviendose);
+        }
     }
 
     // Corrutina para el Dash continuo con consumo de cargas individuales
@@ -194,8 +200,6 @@ void Update()
         }
 
         isDashing = false;
-
-        // Establecemos el pequeño margen para evitar dobles inputs accidentales en ráfaga
         nextDashTimeAllowed = Time.time + margenEntreDashes;
     }
 
@@ -203,7 +207,6 @@ void Update()
     IEnumerator RecargarCargaDash()
     {
         nextDashTimeAllowed = Time.time + dashCooldown;
-        
         yield return new WaitForSeconds(dashCooldown);
         
         if (currentDashes < maxDashes)
@@ -215,8 +218,10 @@ void Update()
 
     void Attack()
     {
-        Collider[] hitEnemies = Physics.OverlapSphere(attackPoint.position, attackRange, enemyLayers);
+        // Activa la animación de ataque si existe en tu controlador (ej: anim.SetTrigger("attack");)
+        if (anim != null) anim.SetTrigger("attack"); 
 
+        Collider[] hitEnemies = Physics.OverlapSphere(attackPoint.position, attackRange, enemyLayers);
         foreach (Collider enemy in hitEnemies)
         {
             if (enemy.GetComponent<Enemy>() != null)
@@ -240,8 +245,7 @@ void Update()
         {
             Vector3 pointToLook = ray.GetPoint(rayDistance);
             
-            // 🔥 TRUCO: Multiplicamos por -1 (invirtiendo el vector) 
-            // para que la espalda pase a ser el frente del cubo.
+            // 🔥 NOTA: Mantenemos tu inversión para orientar correctamente la espalda de la malla si viene girada
             Vector3 lookDirection = -(pointToLook - transform.position);
             lookDirection.y = 0f;
 
@@ -266,8 +270,7 @@ void Update()
             scriptBala.SetDamage(attackDamage);
         }
 
-        Debug.Log($"[GUNS] {(fireLeftHand ? "Ebony (Izquierda)" : "Ivory (Derecha)")} disparó. Daño aplicado: {Mathf.Max(1, Mathf.RoundToInt(attackDamage * 0.5f))}");
-
+        Debug.Log($"[GUNS] {(fireLeftHand ? "Ebony (Izquierda)" : "Ivory (Derecha)")} disparó. Daño aplicado: {attackDamage}");
         fireLeftHand = !fireLeftHand;
     }
 
